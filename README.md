@@ -25,6 +25,7 @@ investment management domain expertise.
 ## Projects
 
 ### 1. Active vs. Passive Investment Strategy Optimization
+[View Project Report](./investment-strategy/Griffin_Brian_Investment_Strategy_Proposal.pdf)
 **Course:** ALY 6080 — Integrated Experiential Learning, Northeastern University
 
 A predictive analytics framework designed to assist investment professionals 
@@ -39,6 +40,8 @@ Federal Funds Rate as independent variables.
 ---
 
 ### 2. Nashville Real Estate Investment Analysis
+[View Project Report](./nashville-real-estate/Griffin_Brian_Real_Estate_ML.pdf) | 
+[View Python Code](./nashville-real-estate/Griffin_Brian_Real_Estate_Python_Code.txt)
 **Course:** ALY 6020 — Predictive Analytics, Northeastern University
 
 End-to-end machine learning analysis of 22,000+ Nashville property records 
