@@ -53,5 +53,5 @@ provided to a simulated real estate investment client.
 ---
 
 ## Connect
-- LinkedIn: [www.linkedin.com/in/brian-griffin-6068063aa]
+- LinkedIn: https://www.linkedin.com/in/brian-griffin-6068063aa
 - Email: Brian.D.Griffin20@gmail.com
