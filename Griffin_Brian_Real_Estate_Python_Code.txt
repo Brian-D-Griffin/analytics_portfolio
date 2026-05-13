@@ -1,0 +1,638 @@
+# Brian Griffin
+# ALY 6020 - Predictive Analytics
+# Module 4 Project: Investing in Nashville
+# February 5, 2023 (transitioned from PY file to text file on 04.04.2026)
+
+#Import Necessary Libraries 
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sn
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.metrics import plot_confusion_matrix
+import statsmodels.api as sm
+from sklearn import tree
+from sklearn.tree import DecisionTreeClassifier
+from sklearn import metrics
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+
+
+# Import xlsx to Dataframe
+df = pd.read_csv(r'C:/Users/brian/OneDrive/Desktop/Northeastern/ALY6020/Assignment_4/Nashville_housing_data.csv')
+
+######################################### Part 1a: DATA CLEANING  ########################################################
+
+# Shape of dataset
+shape = df.shape
+print(shape)
+#22,651 rows; 26 columns
+
+
+# Get feel for dataset
+head_twenty_rows = df.head(20)
+print(head_twenty_rows) 
+
+
+# Determine what 'type' of data is in each column
+data_types = df.dtypes
+print(data_types) 
+# Quantitative: 'Suite / Condo #', 'Building Value', 'Year Built', 'Acreage', 'Neighborhood', 'Land Value', 'Finished Area', 'Bedrooms', 'Full Bath', 'Half Bath'
+# Categorical: 'Parcel ID', 'Land Use', 'Property Address', 'Property City', 'Sale Date', 'Legal Reference', 'Sold as Vacant', 'Multiple Parcels Involved in Sale', 'City', 'State', 'Tax District', 'Foundation Type', 'Exterior Wall', 'Grade', 'Sale Price Compared to Value'
+# Dependent Variable: 'Sale Price Compared to Value'
+
+
+#Understand Categorical Variables
+initial_summary_stats_cat = df.describe(include=np.object)
+print(initial_summary_stats_cat)
+initial_summary_stats_cat.to_csv("initial_summary_stats_cat.csv") 
+
+
+#Understand Numeric Variables
+initial_summary_stats_num = df.describe(include=np.number)
+print(initial_summary_stats_num)
+initial_summary_stats_num.to_csv("initial_summary_stats_num.csv") 
+
+
+# Drop 'Suite/ Condo   #' Variable.  Empty Column (No Values)
+df.drop(['Suite/ Condo   #'], axis=1, inplace=True)
+
+
+#Noticed there is a Property with 10 'Full Bath' - look into
+ten_full_baths = df.loc[df['Full Bath'] == 10]
+ten_full_baths
+# It's possible - all of these buildings are over $1M and have 6-10 bedrooms
+
+
+############ Look for (and address) any null values ############
+list_null = df.columns[df.isna().any()].tolist()
+print(list_null) 
+#'Property Address', 'Property City', 'Finished Area', 'Foundation Type', 'Bedrooms', 'Full Bath', 'Half Bath'
+
+
+address_nulls = df['Property Address'].isna().sum()
+print(address_nulls) #2 (remove, doesn't seem legit)
+
+city_nulls = df['Property City'].isna().sum()
+print(city_nulls) #2 (remove, doesn't seem legit)
+
+area_nulls = df['Finished Area'].isna().sum()
+print(area_nulls) #1 (Replace with Mean or Median)
+
+foundation_nulls = df['Foundation Type'].isna().sum()
+print(foundation_nulls) #1 (Keep, give value)
+
+bedroom_nulls = df['Bedrooms'].isna().sum()
+print(bedroom_nulls) #3 (Remove, critical value, don't have bathrooms either)
+
+bath_nulls = df['Full Bath'].isna().sum()
+print(bath_nulls) #1 (Give mean or median)
+
+halfb_nulls = df['Half Bath'].isna().sum()
+print(halfb_nulls) #108 (Many nulls, consider giving zero)
+
+
+#Address Null Values for categorical variables
+# Drop where 'Property Address' and 'Property City' are NA
+df.dropna(subset=['Property City'], inplace=True)
+
+
+#Address Nulls for Half Bath
+df_x = df.loc[df['Half Bath'].isna()]
+
+# Check how many full baths these houses have
+mean_full_bath = df_x['Full Bath'].mean() #2.5
+median_full_bath = df_x['Full Bath'].median() #2.0
+# These houses probably don't have half baths.  Replace Nulls with Zero
+
+
+df["Half Bath"].fillna(median_full_bath, inplace = True)
+
+
+#Address Nulls for 'Finished Area'
+mean_finished_area = df['Finished Area'].mean()
+print(mean_finished_area) #1915
+
+median_finished_area = df['Finished Area'].median()
+print(median_finished_area) # 1645
+#Outliers skewing mean, replace with median
+
+df["Finished Area"].fillna(median_finished_area, inplace = True)
+
+
+#Address Nulls for 'Foundation Type'
+
+# Count of unique 'Foundation Type' in total dataframe
+foundation_type_count = df[['Foundation Type']].value_counts().sort_index(ascending=False)
+print(foundation_type_count)
+
+# Percent of unique 'Foundation Type' in total dataframe
+foundation_type_pct = df[['Foundation Type']].value_counts().sort_index(ascending=False) / len(df.index) * 100
+print(foundation_type_pct)
+# 63% is crawl.  Also need to reclassify 'TYPICAL'
+# Replace null with crawl
+
+df["Foundation Type"].fillna('CRAWL', inplace = True)
+df["Foundation Type"] = df["Foundation Type"].replace(["TYPICAL"], "CRAWL")
+
+
+#Address Nulls for 'Bedrooms'
+#This is a critical value in predicting dependent variable.  Remove from dataset
+df.dropna(subset=['Bedrooms'], inplace=True)
+
+
+#Address Nulls for 'Full Bath'
+df_bath = df.loc[df['Full Bath'].isna()]
+df_bath
+# It's a 3 bedroom house
+
+mean_full_bath_3 = df.loc[df['Bedrooms'] == 3].mean()
+# mean bathroom = 1.73 (round to 2) for a house with 3 bedrooms
+
+#Replace null (Full bathroom for house with 3 bedrooms) with 2 Full Baths
+df["Full Bath"].fillna(2, inplace = True)
+
+
+####Verify That All Nulls have been accounted for
+list_null = df.columns[df.isna().any()].tolist()
+print(list_null) 
+
+
+
+############ Check for Outliers ############
+
+#1:  Check Quantitative Variables 
+# 'Year Built', 'Acreage', 'Land Value', 'Building Value', 'Finished Area', 'Bedrooms', 'Full Bath', 'Half Bath'
+
+### Boxplots ###
+
+#Year_Birth Boxplot
+bplot_year_built = df.boxplot(column = ['Year Built'])
+plt.title("Year Built")
+plt.show()
+
+
+old_home_count = df.loc[df['Year Built'] < 1901].count()
+print(old_home_count) #167 homes built before 1901
+# There are a few houses built before 1901.  This is possible, will keep in dataframe
+
+
+#Acreage Boxplot
+bplot_acreage = df.boxplot(column = ['Acreage'])
+plt.title("Acreage")
+plt.show()
+
+max_acreage = max(df['Acreage'])
+print(max_acreage)
+#Max acreage is 17 acres.  This seems reasonable, not many outliers in this space
+
+
+#Land Value Boxplot
+bplot_land_value = df.boxplot(column = ['Land Value'])
+plt.title("Land Value")
+plt.show()
+
+max_land_value = max(df['Land Value'])
+print(max_land_value)
+#Max land value is 1.9M
+
+df_high_land_value = df.loc[df['Land Value'] > 1000000]
+# All of these values are located in Belle Meade (primarily) or Forrest Hills.  Probably a highly sought after area
+
+
+#Building Value Boxplot
+bplot_building_value = df.boxplot(column = ['Building Value'])
+plt.title("Building Value")
+plt.show()
+
+max_building_value = max(df['Building Value'])
+print(max_building_value)
+#Max building value is 5M
+# Seems high for a 5 bedroom house
+
+df_high_building_value = df.loc[df['Building Value'] > 2500000]
+#Few outliers appear to be above 2.5M
+
+
+#Home with highest value was sold twice.  Curious how many unique properties are within dataset
+unique_properties = df['Parcel ID'].nunique()
+print(unique_properties)
+#19,716
+
+homes_resold = len(df) - unique_properties
+print(homes_resold)
+#2,930 homes have been resold
+
+
+#Finished Area Boxplot
+bplot_finished_area = df.boxplot(column = ['Finished Area'])
+plt.title("Finished Area")
+plt.show()
+# These are all possible values
+
+
+#Bedrooms Boxplot
+bplot_finished_area = df.boxplot(column = ['Bedrooms'])
+plt.title("Bedrooms")
+plt.show()
+
+#Remove records with zero bedrooms.  Don't think these will assist in analysis (how do you value a home without a bedroom)
+df.drop(df.loc[df['Bedrooms'] == 0].index, inplace=True)
+
+
+#Full Bath Boxplot
+bplot_full_bath = df.boxplot(column = ['Full Bath'])
+plt.title("Full Bath")
+plt.show()
+#All Possible Values
+
+
+#Half Bath Boxplot
+bplot_full_bath = df.boxplot(column = ['Half Bath'])
+plt.title("Half Bath")
+plt.show()
+#All Possible Values.  3 is max, that is not crazy
+
+
+#### Histograms (Check Distribution) ####
+# 'Year Built', 'Acreage', 'Land Value', 'Building Value', 'Finished Area', 'Bedrooms', 'Full Bath', 'Half Bath'
+
+# Histogram of Year Built
+size, scale = 1000, 10
+
+df['Year Built'].plot.hist(grid=True, bins=20, rwidth=0.9,
+                   color='#607c8e')
+plt.title('Distribution of Year Built')
+plt.xlabel('Year Built')
+plt.ylabel('Homes')
+plt.grid(axis='y', alpha=0.75)
+plt.show()
+
+
+# Histogram of Acreage
+size, scale = 1000, 10
+
+df['Acreage'].plot.hist(grid=True, bins=20, rwidth=0.9,
+                   color='#607c8e')
+plt.title('Distribution of Acreage')
+plt.xlabel('Acreage')
+plt.ylabel('Homes')
+plt.grid(axis='y', alpha=0.75)
+plt.show()
+
+
+# Histogram of Land Value
+size, scale = 1000, 10
+
+df['Land Value'].plot.hist(grid=True, bins=20, rwidth=0.9,
+                   color='#607c8e')
+plt.title('Distribution of Land Value')
+plt.xlabel('Land Value')
+plt.ylabel('Homes')
+plt.grid(axis='y', alpha=0.75)
+plt.ticklabel_format(style='plain')
+plt.xticks(rotation=30, ha='right')
+plt.show()
+
+
+# Histogram of Building Value
+size, scale = 1000, 10
+
+df['Building Value'].plot.hist(grid=True, bins=20, rwidth=0.9,
+                   color='#607c8e')
+plt.title('Distribution of Building Value')
+plt.xlabel('Building Value')
+plt.ylabel('Homes')
+plt.grid(axis='y', alpha=0.75)
+plt.ticklabel_format(style='plain')
+plt.xticks(rotation=30, ha='right')
+plt.show()
+
+
+# Histogram of Finished Area
+size, scale = 1000, 10
+
+df['Finished Area'].plot.hist(grid=True, bins=20, rwidth=0.9,
+                   color='#607c8e')
+plt.title('Distribution of Finished Area')
+plt.xlabel('Finished Area')
+plt.ylabel('Homes')
+plt.grid(axis='y', alpha=0.75)
+plt.ticklabel_format(style='plain')
+plt.xticks(rotation=30, ha='right')
+plt.show()
+
+
+# Histogram of Bedrooms
+size, scale = 1000, 10
+
+df['Bedrooms'].plot.hist(grid=True, bins=20, rwidth=0.9,
+                   color='#607c8e')
+plt.title('Distribution of Bedrooms')
+plt.xlabel('Bedrooms')
+plt.ylabel('Homes')
+plt.grid(axis='y', alpha=0.75)
+plt.show()
+
+
+# Histogram of Full Bath
+size, scale = 1000, 10
+
+df['Full Bath'].plot.hist(grid=True, bins=20, rwidth=0.9,
+                   color='#607c8e')
+plt.title('Distribution of Full Bath')
+plt.xlabel('Full Bath')
+plt.ylabel('Homes')
+plt.grid(axis='y', alpha=0.75)
+plt.show()
+
+
+# Histogram of Half Bath
+size, scale = 1000, 10
+
+df['Half Bath'].plot.hist(grid=True, bins=20, rwidth=0.9,
+                   color='#607c8e')
+plt.title('Distribution of Half Bath')
+plt.xlabel('Half Bath')
+plt.ylabel('Homes')
+plt.grid(axis='y', alpha=0.75)
+plt.show()
+
+
+######################################### Part 1b: Exploratory Data Analysis (EDA)  #####################################################
+
+#Look at distribution of dependent variable
+value_count = df[['Sale Price Compared To Value']].value_counts().sort_index(ascending=False)
+print(value_count)
+
+value_count_pct = df[['Sale Price Compared To Value']].value_counts().sort_index(ascending=False) / len(df.index) * 100
+print(value_count_pct)
+#25% Under
+#75% Over
+
+#Create dataset for sales that are Undervalued
+df_under = df.loc[df['Sale Price Compared To Value'] == 'Under']
+
+
+#Understand Numerical attributes for Undervalued Sales
+stats_num_under = df_under.describe(include=np.number)
+print(stats_num_under)
+stats_num_under.to_csv("stats_num_under.csv") 
+
+''' Average Undervalued Sale: 
+    - Low acreage, mean is 0.50 acres (same as overall dataset)
+    - Land Value, mean is 76K (slightly higher than overall dataset)
+    - Building Value, mean is 205K (much higher than overall dataset) *
+    - Numerical Statistics are similar '''
+
+
+#Understand Categorical attributes for Undervalued Sales
+stats_cat_under = df_under.describe(include=np.object)
+print(stats_cat_under)
+stats_cat_under.to_csv("stats_cat_under.csv") 
+
+
+# Tend to be 'Sold As Vacant' more often
+vacant_count_pct = df_under[['Sold As Vacant']].value_counts().sort_index(ascending=False) / len(df_under.index) * 100
+print(vacant_count_pct)
+#2.1% sold as vacant compared to 0.6% (total dataset)
+
+
+# Tend to be of higher grade (higher percentage of A, B (20% compared to 15% of total dataset)
+grade_count_pct = df_under[['Grade']].value_counts().sort_index(ascending=False) / len(df_under.index) * 100
+print(grade_count_pct)
+
+
+# More likely not to be in 'URBAN SERVICES DISTRICT'
+district_count_pct = df_under[['Tax District']].value_counts().sort_index(ascending=False) / len(df_under.index) * 100
+print(district_count_pct)
+
+
+########## Create Dataframe specifically for Logistic Regresion ##########
+### Logistic Regression cannot run categorical variables through model 
+df_logistic = df
+
+# Categorical: 'Parcel ID', 'Land Use', 'Property Address', 'Property City', 'Sale Date', 'Legal Reference', 'Sold as Vacant', 'Multiple Parcels Involved in Sale', 'City', 'State', 'Tax District', 'Foundation Type', 'Exterior Wall', 'Grade', 'Sale Price Compared to Value'
+
+#Drop variables that don't make sense
+df_logistic.drop(columns=['Unnamed: 0', 'Parcel ID', 'Property Address', 'Sale Date', 'Legal Reference'], inplace = True)
+df_logistic.drop(columns=['City','State'], inplace = True)
+
+#Recheck data types
+data_types_logistic = df_logistic.dtypes
+print(data_types_logistic) 
+
+## Hot encoding for categorical variables
+df_logistic['Land Use'] = df_logistic['Land Use'].replace(to_replace=['SINGLE FAMILY','DUPLEX','RESIDENTIAL COMBO/MISC','QUADPLEX'], value=[0,1,2,3])
+df_logistic['Property City'] = df_logistic['Property City'].replace(to_replace=['NASHVILLE','ANTIOCH','BRENTWOOD','MADISON','OLD HICKORY','HERMITAGE','GOODLETTSVILLE','JOELTON','WHITES CREEK','MOUNT JULIET'], value=[0,1,2,3,4,5,6,7,8,9])
+df_logistic['Sold As Vacant'] = df_logistic['Sold As Vacant'].replace(to_replace=['No','Yes'], value=[0,1])
+df_logistic['Multiple Parcels Involved in Sale'] = df_logistic['Multiple Parcels Involved in Sale'].replace(to_replace=['No','Yes'], value=[0,1])
+df_logistic['Tax District'] = df_logistic['Tax District'].replace(to_replace=['URBAN SERVICES DISTRICT','CITY OF BERRY HILL','GENERAL SERVICES DISTRICT','CITY OF BELLE MEADE','CITY OF OAK HILL','CITY OF FOREST HILLS','CITY OF GOODLETTSVILLE'], value=[0,1,2,3,4,5,6])
+df_logistic['Foundation Type'] = df_logistic['Foundation Type'].replace(to_replace=['PT BSMT','SLAB','FULL BSMT','CRAWL','PIERS','TYPICAL'], value=[0,1,2,3,4,5])
+df_logistic['Exterior Wall'] = df_logistic['Exterior Wall'].replace(to_replace=['BRICK','BRICK/FRAME','FRAME','FRAME/STONE','STONE','STUCCO','CONC BLK','LOG','METAL'], value=[0,1,2,3,4,5,6,7,8])
+df_logistic['Grade'] = df_logistic['Grade'].replace(to_replace=['C   ','B   ','D   ','A   ','X   ','E   ','SSC ','OFC ','AAB ','OFB '], value=[0,1,2,3,4,5,6,7,8,9])
+df_logistic['Sale Price Compared To Value'] = df_logistic['Sale Price Compared To Value'].replace(to_replace=['Over','Under'], value=[0,1])
+
+
+########### Correlation Matrix ################
+
+corr_matrix = df_logistic.corr()
+sn.heatmap(corr_matrix, annot=False)
+plt.title("Correlation Matrix")
+plt.show()
+
+
+###################################### Part 2: Logistic Regression Model  ###########################################################
+y = df_logistic['Sale Price Compared To Value']
+x = df_logistic.drop(columns='Sale Price Compared To Value')
+
+X_train, X_test, y_train, y_test = train_test_split(x, y,test_size=0.2)
+
+
+len(X_train) #18,113
+len(X_test) #4,529
+len(y_train) #18,113
+len(y_test) #4,529
+print(len(X_train + X_test)) #22642
+print(len(y_train + y_test)) #22642
+
+
+# Run the Logistic Regression model
+model = LogisticRegression(solver='liblinear', random_state=0).fit(X_train, y_train)
+model.score(X_train, y_train)
+print(model.score(X_train, y_train)) #75.23% accuracy
+
+
+# Model Predictions
+y_pred = model.predict(X_test)
+print(y_pred)
+
+
+# Confusion matrix
+confusion_matrix = confusion_matrix(y_test, y_pred)
+print("Confusion Matrix : \n", confusion_matrix)
+
+
+# Confusion Matrix Plot 
+color = 'white'
+matrix = plot_confusion_matrix(model, X_test, y_test, cmap=plt.cm.Blues)
+matrix.ax_.set_title('Confusion Matrix Logistic Regression', color=color)
+plt.xlabel('Predicted Label', color=color)
+plt.ylabel('True Label', color=color)
+plt.gcf().axes[0].tick_params(colors=color)
+plt.gcf().axes[1].tick_params(colors=color)
+plt.show()
+
+
+# Classification Report
+logistic_classification_report = classification_report(y_test, y_pred)
+print(logistic_classification_report)
+
+
+# Accuracy Score
+logistic_accuracy =  accuracy_score(y_test, y_pred)
+print('Accuracy: %.3f' % logistic_accuracy)
+#76%
+
+
+
+# Building model and fitting data using statsmodel.api
+# Accuracy Score
+log_reg = sm.Logit(y_train, X_train).fit()
+print(log_reg.summary())
+
+
+
+###################################### Part 3: Decision Tree Model  ###########################################################
+
+y = df['Sale Price Compared To Value']
+x = df.drop(columns='Sale Price Compared To Value')
+
+X_train, X_test, y_train, y_test = train_test_split(x, y,test_size=0.2)
+
+len(X_train) #18,113
+len(X_test) #4,529
+len(y_train) #18,113
+len(y_test) #4,529
+print(len(X_train + X_test)) #22642
+print(len(y_train + y_test)) #22642
+
+# Decision Tree Model
+treemodel = DecisionTreeClassifier(max_depth=3)
+treemodel.fit(X_train, y_train)
+plt.figure(figsize=(25,10))
+plot=tree.plot_tree(treemodel, feature_names=x.columns.values.tolist(),class_names=['0','1'],filled=True,rounded=True,fontsize=14)
+
+
+# Model Predictions
+model = treemodel.fit(X_train,y_train)
+y_pred = model.predict(X_test)
+print("Accuracy:",metrics.accuracy_score(y_test, y_pred))
+#Accuracy = 76.7 (higher than logistic regression model)
+
+
+# Confusion matrix
+confusion_matrix_tree = confusion_matrix(y_test, y_pred)
+print("Confusion Matrix : \n", confusion_matrix_tree)
+
+
+# Confusion Matrix Plot 
+color = 'white'
+matrix = plot_confusion_matrix(model, X_test, y_test, cmap=plt.cm.Blues)
+matrix.ax_.set_title('Confusion Matrix Decision Tree', color=color)
+plt.xlabel('Predicted Label', color=color)
+plt.ylabel('True Label', color=color)
+plt.gcf().axes[0].tick_params(colors=color)
+plt.gcf().axes[1].tick_params(colors=color)
+plt.show()
+
+
+# Classification Report for Decision Tree
+decision_tree_classification_report = classification_report(y_test, y_pred)
+print(decision_tree_classification_report)
+
+
+
+
+
+###################################### Part 4: Random Forest Model  ###########################################################
+
+#Model
+rfclass = RandomForestClassifier(n_estimators=35,random_state=0)
+rfclass.fit(X_train, y_train)
+rfypred=rfclass.predict(X_test)
+#Using 35 decision trees
+
+rfclass.score(X_test, y_test)
+#72.4%
+
+
+# Model Predictions
+model_rf = rfclass.fit(X_train,y_train)
+y_pred_rf = model_rf.predict(X_test)
+print("Accuracy:",metrics.accuracy_score(y_test, y_pred_rf))
+#Accuracy = 72.4 (least accurate model so far)
+
+
+# Confusion matrix
+confusion_matrix_rf = confusion_matrix(y_test, y_pred_rf)
+print("Confusion Matrix : \n", confusion_matrix_rf)
+
+
+# Confusion Matrix Plot 
+color = 'white'
+matrix = plot_confusion_matrix(model_rf, X_test, y_test, cmap=plt.cm.Blues)
+matrix.ax_.set_title('Confusion Matrix Random Forest', color=color)
+plt.xlabel('Predicted Label', color=color)
+plt.ylabel('True Label', color=color)
+plt.gcf().axes[0].tick_params(colors=color)
+plt.gcf().axes[1].tick_params(colors=color)
+plt.show()
+
+
+# Classification Report for Random Forest
+rf_classification_report = classification_report(y_test, y_pred_rf)
+print(rf_classification_report)
+
+
+
+###################################### Part 5: Gradient Boost Model  ###########################################################
+
+#Model
+gbclass = GradientBoostingClassifier(n_estimators=40, random_state = 0)
+gbclass.fit(X_train, y_train)
+gbypred = gbclass.predict(X_test)
+# leave learning rate 
+
+gbclass.score(X_test, y_test)
+#76.8% accuracy
+
+
+# Model Predictions
+model_gb = gbclass.fit(X_train,y_train)
+y_pred_gb = model_gb.predict(X_test)
+print("Accuracy:",metrics.accuracy_score(y_test, y_pred_gb))
+#Accuracy = 76.8 (least accurate model so far)
+
+
+# Confusion matrix
+confusion_matrix_gb = confusion_matrix(y_test, y_pred_gb)
+print("Confusion Matrix : \n", confusion_matrix_gb)
+
+
+# Confusion Matrix Plot 
+color = 'white'
+matrix = plot_confusion_matrix(model_gb, X_test, y_test, cmap=plt.cm.Blues)
+matrix.ax_.set_title('Confusion Matrix Gradient Boost', color=color)
+plt.xlabel('Predicted Label', color=color)
+plt.ylabel('True Label', color=color)
+plt.gcf().axes[0].tick_params(colors=color)
+plt.gcf().axes[1].tick_params(colors=color)
+plt.show()
+
+
+# Classification Report for Gradient Boost
+gb_classification_report = classification_report(y_test, y_pred_gb)
+print(gb_classification_report)
