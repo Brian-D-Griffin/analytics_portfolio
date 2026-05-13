@@ -25,7 +25,7 @@ investment management domain expertise.
 ## Projects
 
 ### 1. Active vs. Passive Investment Strategy Optimization
-[View Project Report](./Griffin_Brian_Investment_Strategy_Proposal.pdf)
+[View Project Report](./Griffin_Brian_Individual_Project_Proposal.pdf)
 **Course:** ALY 6080 — Integrated Experiential Learning, Northeastern University
 
 A predictive analytics framework designed to assist investment professionals 
